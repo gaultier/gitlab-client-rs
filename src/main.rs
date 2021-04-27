@@ -2,6 +2,16 @@ use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+struct Pipeline {
+    id: u64,
+    project_id: u64,
+    #[serde(rename(deserialize = "ref"))]
+    reference: Option<String>,
+    sha: Option<String>,
+    status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct Job {
     created_at: Option<String>,
     started_at: Option<String>,
@@ -9,7 +19,7 @@ struct Job {
     duration: Option<f64>,
     id: u64,
     name: Option<String>,
-    // pipeline: Pipeline
+    pipeline: Pipeline,
 }
 
 #[tokio::main]
@@ -47,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok((project_id, b)) => {
                     println!("[{}] Ok: {}", project_id, b.len());
                     let jobs: Vec<Job> = serde_json::from_str(&b).unwrap();
-                    println!("[{}] Ok: {:?}", project_id, jobs);
+                    println!("[{}] Ok: {:#?}", project_id, jobs);
                 }
                 Err((project_id, e)) => eprintln!("[{}] Error: {}", project_id, e),
             }
