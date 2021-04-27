@@ -1,5 +1,11 @@
 use futures::stream::{self, StreamExt};
 use serde::Deserialize;
+use std::io;
+use tui::backend::CrosstermBackend;
+// use tui::layout::{Constraint, Direction, Layout};
+use crossterm::event::{read, Event};
+use tui::widgets::{Block, Borders};
+use tui::Terminal;
 
 #[derive(Debug, Deserialize)]
 struct User {
@@ -75,5 +81,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await;
 
-    Ok(())
+    let stdout = io::stdout();
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+            let block = Block::default().title("Block").borders(Borders::ALL);
+            f.render_widget(block, size);
+        })?;
+
+        match read()? {
+            Event::Key(event) => println!("{:?}", event),
+            Event::Mouse(event) => println!("{:?}", event),
+            _ => {}
+        };
+    }
 }
