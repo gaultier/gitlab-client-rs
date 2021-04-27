@@ -2,6 +2,12 @@ use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+struct User {
+    id: u64,
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct Pipeline {
     id: u64,
     project_id: u64,
@@ -19,7 +25,12 @@ struct Job {
     duration: Option<f64>,
     id: u64,
     name: Option<String>,
+    reference: Option<String>,
+    stage: Option<String>,
+    status: Option<String>,
+    web_url: Option<String>,
     pipeline: Pipeline,
+    user: User,
 }
 
 #[tokio::main]
