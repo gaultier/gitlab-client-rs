@@ -3,11 +3,13 @@ use serde::Deserialize;
 use std::io::{stdout, Stdout, Write};
 use tui::backend::CrosstermBackend;
 // use tui::layout::{Constraint, Direction, Layout};
+use anyhow::Result;
 use crossterm::event::{read, Event, KeyCode, KeyEvent};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
+use tokio::sync::mpsc;
 use tui::layout::Constraint;
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
@@ -47,57 +49,14 @@ struct Job {
 }
 
 // shutdown the CLI and show terminal
-fn shutdown(
-    mut terminal: Terminal<CrosstermBackend<Stdout>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn shutdown(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen,)?;
     terminal.show_cursor()?;
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let token = std::env::var("GITLAB_TOKEN")?;
-    let project_ids: Vec<u64> = vec![138, 125, 156, 889, 594];
-    let client = reqwest::Client::new();
-    let projects_count = project_ids.len();
-
-    let bodies = stream::iter(project_ids)
-        .map(|project_id| {
-            let client = &client;
-            let token = &token;
-            async move {
-                client
-                    .get(format!(
-                        "https://gitlab.ppro.com/api/v4/projects/{}/jobs",
-                        project_id
-                    ))
-                    .header("PRIVATE-TOKEN", token)
-                    .send()
-                    .await
-                    .map_err(|err| (project_id, err))?
-                    .text()
-                    .await
-                    .map(|body| (project_id, body))
-                    .map_err(|err| (project_id, err))
-            }
-        })
-        .buffer_unordered(projects_count);
-
-    bodies
-        .for_each(|body| async {
-            match body {
-                Ok((project_id, b)) => {
-                    println!("[{}] Ok: {}", project_id, b.len());
-                    let jobs: Vec<Job> = serde_json::from_str(&b).unwrap();
-                    // println!("[{}] Ok: {:#?}", project_id, jobs);
-                }
-                Err((project_id, e)) => eprintln!("[{}] Error: {}", project_id, e),
-            }
-        })
-        .await;
-
+async fn start_ui() -> Result<()> {
     let mut stdout = stdout();
     // Terminal initialization
     // not capturing mouse to make text select/copy possible
@@ -173,6 +132,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     terminal.show_cursor()?;
     shutdown(terminal)?;
+    Ok(())
+}
 
+async fn handle_network_event() {
+    // let bodies = stream::iter(project_ids)
+    //     .map(|project_id| {
+    //         let client = &client;
+    //         let token = &token;
+    //         async move {
+    //             client
+    //                 .get(format!(
+    //                     "https://gitlab.ppro.com/api/v4/projects/{}/jobs",
+    //                     project_id
+    //                 ))
+    //                 .header("PRIVATE-TOKEN", token)
+    //                 .send()
+    //                 .await
+    //                 .map_err(|err| (project_id, err))?
+    //                 .text()
+    //                 .await
+    //                 .map(|body| (project_id, body))
+    //                 .map_err(|err| (project_id, err))
+    //         }
+    //     })
+    //     .buffer_unordered(projects_count);
+
+    // bodies
+    //     .for_each(|body| async {
+    //         match body {
+    //             Ok((project_id, b)) => {
+    //                 println!("[{}] Ok: {}", project_id, b.len());
+    //                 let _jobs: Vec<Job> = serde_json::from_str(&b).unwrap();
+    //                 // println!("[{}] Ok: {:#?}", project_id, jobs);
+    //             }
+    //             Err((project_id, e)) => eprintln!("[{}] Error: {}", project_id, e),
+    //         }
+    //     })
+    //     .await;
+}
+
+#[tokio::main]
+async fn start_network(mut io_rx: mpsc::Receiver<()>) {
+    let _token = std::env::var("GITLAB_TOKEN");
+    let project_ids: Vec<u64> = vec![138, 125, 156, 889, 594];
+    let _client = reqwest::Client::new();
+    let _projects_count = project_ids.len();
+
+    while let Some(_) = io_rx.recv().await {
+        handle_network_event().await;
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let (_sync_io_tx, sync_io_rx) = mpsc::channel::<()>(500);
+
+    std::thread::spawn(move || {
+        start_network(sync_io_rx);
+    });
+    start_ui().await?;
     Ok(())
 }
