@@ -139,7 +139,7 @@ async fn start_ui() -> Result<()> {
 
 #[derive(Debug)]
 enum AppEvent {
-    FetchJob(mpsc::Sender<(Vec<Job>, usize)>, usize),
+    FetchJob(mpsc::Sender<Vec<Job>>, usize),
 }
 
 async fn fetch_project_jobs(
@@ -175,13 +175,13 @@ async fn handle_network_event(
 ) {
     match event {
         AppEvent::FetchJob(tx, project_id) => {
-            tokio::spawn(move || fetch_project_jobs(client, token, project_id));
+            tokio::spawn(async move { fetch_project_jobs(client, token, project_id) });
         }
     }
 }
 
 #[tokio::main]
-async fn start_network(mut io_rx: mpsc::Receiver<()>) {
+async fn start_network(mut io_rx: mpsc::Receiver<AppEvent>) {
     let token = std::env::var("GITLAB_TOKEN");
     let project_ids: Vec<u64> = vec![138, 125, 156, 889, 594];
     let client = reqwest::Client::new();
@@ -194,7 +194,7 @@ async fn start_network(mut io_rx: mpsc::Receiver<()>) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (_sync_io_tx, sync_io_rx) = mpsc::channel::<()>(500);
+    let (_sync_io_tx, sync_io_rx) = mpsc::channel::<AppEvent>(500);
 
     std::thread::spawn(move || {
         start_network(sync_io_rx);
