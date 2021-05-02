@@ -139,12 +139,12 @@ async fn start_ui() -> Result<()> {
 
 #[derive(Debug)]
 enum AppEvent {
-    FetchJob(mpsc::Sender<Vec<Job>>, usize),
+    FetchJob(mpsc::Sender<Result<Vec<Job>>>, usize),
 }
 
 async fn fetch_project_jobs(
     client: reqwest::Client,
-    token: Result<&String, &VarError>,
+    token: Result<String, VarError>,
     project_id: usize,
 ) -> Result<Vec<Job>> {
     let mut req = client.get(format!(
@@ -168,14 +168,19 @@ async fn fetch_project_jobs(
         .collect::<Vec<_>>())
 }
 
-async fn handle_network_event(
+async fn handle_network_event<'a>(
     client: reqwest::Client,
-    token: Result<&String, &VarError>,
+    token: Result<String, VarError>,
     event: AppEvent,
 ) {
     match event {
         AppEvent::FetchJob(tx, project_id) => {
-            tokio::spawn(async move { fetch_project_jobs(client, token, project_id) });
+            tokio::spawn(async move {
+                let jobs = fetch_project_jobs(client, token, project_id).await;
+                if let Err(_) = tx.send(jobs).await {
+                    eprintln!("Receiver dropped!");
+                }
+            });
         }
     }
 }
@@ -188,7 +193,7 @@ async fn start_network(mut io_rx: mpsc::Receiver<AppEvent>) {
     let _projects_count = project_ids.len();
 
     while let Some(event) = io_rx.recv().await {
-        handle_network_event(client.clone(), token.as_ref(), event).await;
+        handle_network_event(client.clone(), token.clone(), event).await;
     }
 }
 
