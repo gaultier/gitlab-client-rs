@@ -1,9 +1,10 @@
 use futures::stream::{self, StreamExt};
 use serde::Deserialize;
+use std::env::VarError;
 use std::io::{stdout, Stdout, Write};
 use tui::backend::CrosstermBackend;
 // use tui::layout::{Constraint, Direction, Layout};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crossterm::event::{read, Event, KeyCode, KeyEvent};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -135,7 +136,43 @@ async fn start_ui() -> Result<()> {
     Ok(())
 }
 
-async fn handle_network_event() {
+#[derive(Debug)]
+enum AppEvent {
+    FetchJob(mpsc::Sender<(Vec<Job>, usize)>, usize),
+}
+
+async fn fetch_project_jobs(
+    client: reqwest::Client,
+    token: Result<&String, &VarError>,
+    project_id: usize,
+) -> Result<Vec<Job>> {
+    let req = client.get(format!(
+        "https://gitlab.ppro.com/api/v4/projects/{}/jobs",
+        project_id
+    ));
+    if let Ok(token) = token {
+        req.header("PRIVATE-TOKEN", token.clone());
+    }
+
+    let json = req.send().await?.text().await?;
+
+    serde_json::from_str(&json).context("failed to parse to JSON")
+}
+
+async fn handle_network_event(
+    client: reqwest::Client,
+    token: Result<&String, &VarError>,
+    event: AppEvent,
+) {
+    match event {
+        AppEvent::FetchJob(tx, project_id) => {
+            tokio::spawn(move || fetch_project_jobs(client, token, project_id))
+                .await
+                .map(|res| tx.send((res, project_id)))
+                .map_err(|res| tx.send((res, project_id)));
+        }
+    }
+
     // let bodies = stream::iter(project_ids)
     //     .map(|project_id| {
     //         let client = &client;
@@ -174,13 +211,13 @@ async fn handle_network_event() {
 
 #[tokio::main]
 async fn start_network(mut io_rx: mpsc::Receiver<()>) {
-    let _token = std::env::var("GITLAB_TOKEN");
+    let token = std::env::var("GITLAB_TOKEN");
     let project_ids: Vec<u64> = vec![138, 125, 156, 889, 594];
-    let _client = reqwest::Client::new();
+    let client = reqwest::Client::new();
     let _projects_count = project_ids.len();
 
-    while let Some(_) = io_rx.recv().await {
-        handle_network_event().await;
+    while let Some(event) = io_rx.recv().await {
+        handle_network_event(client.clone(), token.as_ref(), event).await;
     }
 }
 
