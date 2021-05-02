@@ -152,7 +152,7 @@ async fn fetch_project_jobs(
         project_id
     ));
     if let Ok(token) = token {
-        req = req.header("PRIVATE-TOKEN", token.clone());
+        req = req.header("PRIVATE-TOKEN", token);
     }
 
     let json = req.send().await?.text().await?;
@@ -161,10 +161,7 @@ async fn fetch_project_jobs(
 
     Ok(jobs
         .into_iter()
-        .map(|job| Job {
-            project_id: project_id,
-            ..job
-        })
+        .map(|job| Job { project_id, ..job })
         .collect::<Vec<_>>())
 }
 
@@ -177,9 +174,7 @@ async fn handle_network_event<'a>(
         AppEvent::FetchJob(tx, project_id) => {
             tokio::spawn(async move {
                 let jobs = fetch_project_jobs(client, token, project_id).await;
-                if let Err(_) = tx.send(jobs).await {
-                    eprintln!("Receiver dropped!");
-                }
+                tx.send(jobs).await.expect("Receiver dropped!");
             });
         }
     }
