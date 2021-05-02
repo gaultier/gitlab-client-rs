@@ -1,4 +1,3 @@
-use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 use std::env::VarError;
 use std::io::{stdout, Stdout, Write};
@@ -35,6 +34,8 @@ struct Pipeline {
 
 #[derive(Debug, Deserialize)]
 struct Job {
+    #[serde(skip)]
+    project_id: usize,
     created_at: Option<String>,
     started_at: Option<String>,
     finished_at: Option<String>,
@@ -146,17 +147,25 @@ async fn fetch_project_jobs(
     token: Result<&String, &VarError>,
     project_id: usize,
 ) -> Result<Vec<Job>> {
-    let req = client.get(format!(
+    let mut req = client.get(format!(
         "https://gitlab.ppro.com/api/v4/projects/{}/jobs",
         project_id
     ));
     if let Ok(token) = token {
-        req.header("PRIVATE-TOKEN", token.clone());
+        req = req.header("PRIVATE-TOKEN", token.clone());
     }
 
     let json = req.send().await?.text().await?;
 
-    serde_json::from_str(&json).context("failed to parse to JSON")
+    let jobs: Vec<Job> = serde_json::from_str(&json).context("failed to parse to JSON")?;
+
+    Ok(jobs
+        .into_iter()
+        .map(|job| Job {
+            project_id: project_id,
+            ..job
+        })
+        .collect::<Vec<_>>())
 }
 
 async fn handle_network_event(
@@ -166,47 +175,9 @@ async fn handle_network_event(
 ) {
     match event {
         AppEvent::FetchJob(tx, project_id) => {
-            tokio::spawn(move || fetch_project_jobs(client, token, project_id))
-                .await
-                .map(|res| tx.send((res, project_id)))
-                .map_err(|res| tx.send((res, project_id)));
+            tokio::spawn(move || fetch_project_jobs(client, token, project_id));
         }
     }
-
-    // let bodies = stream::iter(project_ids)
-    //     .map(|project_id| {
-    //         let client = &client;
-    //         let token = &token;
-    //         async move {
-    //             client
-    //                 .get(format!(
-    //                     "https://gitlab.ppro.com/api/v4/projects/{}/jobs",
-    //                     project_id
-    //                 ))
-    //                 .header("PRIVATE-TOKEN", token)
-    //                 .send()
-    //                 .await
-    //                 .map_err(|err| (project_id, err))?
-    //                 .text()
-    //                 .await
-    //                 .map(|body| (project_id, body))
-    //                 .map_err(|err| (project_id, err))
-    //         }
-    //     })
-    //     .buffer_unordered(projects_count);
-
-    // bodies
-    //     .for_each(|body| async {
-    //         match body {
-    //             Ok((project_id, b)) => {
-    //                 println!("[{}] Ok: {}", project_id, b.len());
-    //                 let _jobs: Vec<Job> = serde_json::from_str(&b).unwrap();
-    //                 // println!("[{}] Ok: {:#?}", project_id, jobs);
-    //             }
-    //             Err((project_id, e)) => eprintln!("[{}] Error: {}", project_id, e),
-    //         }
-    //     })
-    //     .await;
 }
 
 #[tokio::main]
